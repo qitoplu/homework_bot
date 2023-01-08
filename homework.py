@@ -1,9 +1,11 @@
 import logging
 import os
+import sys
 import time
 from http import HTTPStatus
 
 import requests
+import simplejson
 import telegram
 from dotenv import load_dotenv
 
@@ -31,11 +33,12 @@ HOMEWORK_VERDICTS = {
 logging.basicConfig(
     level=logging.DEBUG,
     filename='main.log',
+    filemode='a',
     format='%(asctime)s, %(levelname)s, %(message)s'
 )
 logger = logging.getLogger(__name__)
 logger.addHandler(
-    logging.StreamHandler
+    logging.StreamHandler()
 )
 
 
@@ -48,7 +51,7 @@ def check_tokens():
     }
     for key, value in tokens.items():
         if value is None:
-            logging.critical(f'{key} отсутствует переменная окружения')
+            logger.critical(f'{key} отсутствует переменная окружения')
             return False
     return True
 
@@ -57,9 +60,10 @@ def send_message(bot, message):
     """Функция отправляет сообщение пользователю в телеграмм."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        logging.debug('Сообщение отправлено')
-    except Exception as error:
-        logging.error(f'{error}, ошибка доступа к API практикума')
+        logger.debug('Сообщение отправлено')
+    except telegram.TelegramError as error:
+        logger.error(f'{error}, ошибка доступа к API практикума')
+        sys.exit
 
 
 def get_api_answer(timestamp):
@@ -71,14 +75,18 @@ def get_api_answer(timestamp):
     try:
         answer = requests.get(ENDPOINT, headers=HEADERS, params=payload)
     except requests.RequestException:
-        logging.error('Запросик к API не проходит')
-    content = answer.json()
+        logger.error('Запросик к API не проходит')
+        sys.exit
+    try:
+        content = answer.json()
+    except simplejson.JSONDecodeError:
+        logger.error('Невозможно преобразовать ответ в JSON')
+        sys.exit
     if answer.status_code == HTTPStatus.OK:
         return content
-    else:
-        raise exceptions.ExceptionGetApiAnswerStatus(
-            'Ошибка при запросе к API практикума'
-        )
+    raise exceptions.ExceptionGetApiAnswerStatus(
+        'Ошибка при запросе к API практикума'
+    )
 
 
 def check_response(response):
@@ -86,42 +94,42 @@ def check_response(response):
     try:
         curr_date = response['current_date']
     except KeyError:
-        logging.error(
+        logger.error(
             'Ключ current_date не передается в ответе API'
         )
+        sys.exit
     try:
         homeworks = response['homeworks']
     except KeyError:
-        logging.error(
+        logger.error(
             'Ключ homeworks не передается в ответе API'
         )
+        sys.exit
     if isinstance(curr_date, int) and isinstance(homeworks, list):
         return homeworks
-    else:
-        raise TypeError
+    raise TypeError('Неверный тип переданных данных')
 
 
 def parse_status(homework):
     """Функция извлекает статус домашней работы из ответа API."""
     try:
         homework_name = homework['homework_name']
-    except homework_name is None:
+    except homework_name['homework_name'] == []:
         raise exceptions.ExceptionKeyNotFound(
             'Ключа homework_name нет в ответе'
         )
     try:
         homework_status = homework['status']
-    except homework_status is None:
+    except homework_status['status'] == []:
         raise exceptions.ExceptionKeyNotFound(
             'Ключа homework_status нет в ответе'
         )
     if homework_status in HOMEWORK_VERDICTS:
         verdict = str(HOMEWORK_VERDICTS[homework['status']])
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    else:
-        raise exceptions.ExceptionUnknownHomeworkStatus(
-            'Неизвестный статус ДЗ'
-        )
+    raise exceptions.ExceptionUnknownHomeworkStatus(
+        'Неизвестный статус ДЗ'
+    )
 
 
 def main():
@@ -134,16 +142,18 @@ def main():
             response = get_api_answer(timestamp)
             homework = check_response(response)
             quantity = len(homework)
-            while quantity > 0:
-                message = parse_status(homework[quantity - 1])
-                send_message(bot, message)
-                quantity -= 1
+            message = parse_status(homework[quantity - 1])
+            send_message(bot, message)
+            logger.info(f'Сообщение отправлено: {message}')
+            quantity -= 1
             timestamp = int(time.time())
             time.sleep(RETRY_PERIOD)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             send_message(bot, message)
+            logger.info(f'сообщение отправлено: {message}')
             time.sleep(RETRY_PERIOD)
+            sys.exit
 
 
 if __name__ == '__main__':
