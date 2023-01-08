@@ -25,7 +25,7 @@ python -m venv venv
 ```
 Активируем виртуальное окружение.
 ```bash
-source venv/Scripts/activate
+. venv/Scripts/activate
 ```
 Устанавливаем зависимости.
 ```bash
