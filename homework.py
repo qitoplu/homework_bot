@@ -5,7 +5,7 @@ import time
 from http import HTTPStatus
 
 import requests
-import simplejson
+import json
 import telegram
 from dotenv import load_dotenv
 
@@ -79,7 +79,7 @@ def get_api_answer(timestamp):
         sys.exit
     try:
         content = answer.json()
-    except simplejson.JSONDecodeError:
+    except json.decoder.JSONDecodeError:
         logger.error('Невозможно преобразовать ответ в JSON')
         sys.exit
     if answer.status_code == HTTPStatus.OK:
