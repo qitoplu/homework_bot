@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 import time
 from http import HTTPStatus
 
@@ -8,8 +7,8 @@ import requests
 import json
 import telegram
 from dotenv import load_dotenv
-
 import exceptions
+import sys
 
 load_dotenv()
 
@@ -63,7 +62,6 @@ def send_message(bot, message):
         logger.debug('Сообщение отправлено')
     except telegram.TelegramError as error:
         logger.error(f'{error}, ошибка доступа к API практикума')
-        sys.exit
 
 
 def get_api_answer(timestamp):
@@ -76,12 +74,10 @@ def get_api_answer(timestamp):
         answer = requests.get(ENDPOINT, headers=HEADERS, params=payload)
     except requests.RequestException:
         logger.error('Запросик к API не проходит')
-        sys.exit
     try:
         content = answer.json()
     except json.decoder.JSONDecodeError:
         logger.error('Невозможно преобразовать ответ в JSON')
-        sys.exit
     if answer.status_code == HTTPStatus.OK:
         return content
     raise exceptions.ExceptionGetApiAnswerStatus(
@@ -97,14 +93,12 @@ def check_response(response):
         logger.error(
             'Ключ current_date не передается в ответе API'
         )
-        sys.exit
     try:
         homeworks = response['homeworks']
     except KeyError:
         logger.error(
             'Ключ homeworks не передается в ответе API'
         )
-        sys.exit
     if isinstance(curr_date, int) and isinstance(homeworks, list):
         return homeworks
     raise TypeError('Неверный тип переданных данных')
@@ -112,20 +106,18 @@ def check_response(response):
 
 def parse_status(homework):
     """Функция извлекает статус домашней работы из ответа API."""
-    try:
-        homework_name = homework['homework_name']
-    except homework_name['homework_name'] == []:
+    homework_name = homework.get('homework_name')
+    if homework_name is None:
         raise exceptions.ExceptionKeyNotFound(
             'Ключа homework_name нет в ответе'
         )
-    try:
-        homework_status = homework['status']
-    except homework_status['status'] == []:
+    homework_status = homework.get('status')
+    if homework_status is None:
         raise exceptions.ExceptionKeyNotFound(
             'Ключа homework_status нет в ответе'
         )
     if homework_status in HOMEWORK_VERDICTS:
-        verdict = str(HOMEWORK_VERDICTS[homework['status']])
+        verdict = HOMEWORK_VERDICTS.get(homework_status)
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
     raise exceptions.ExceptionUnknownHomeworkStatus(
         'Неизвестный статус ДЗ'
@@ -134,16 +126,28 @@ def parse_status(homework):
 
 def main():
     """Основная логика работы бота."""
-    if check_tokens():
+    try:
         bot = telegram.Bot(token=TELEGRAM_TOKEN)
-        timestamp = int(time.time())
+    except Exception as error:
+        logger.error(f'ошибка программы {error}')
+    timestamp = int(time.time())
+    temporary_status = []
+    if not check_tokens():
+        logger.critical('Отсутствуют переменные окружения')
+        sys.exit('Отсутствуют переменные окружения')
     while True:
         try:
             response = get_api_answer(timestamp)
             homework = check_response(response)
+            if not homework:
+                time.sleep(RETRY_PERIOD)
+                continue
             quantity = len(homework)
-            message = parse_status(homework[quantity - 1])
-            send_message(bot, message)
+            if homework[quantity - 1] != 0:
+                message = parse_status(homework[quantity - 1])
+            if temporary_status != message:
+                send_message(bot, message)
+                temporary_status = message
             logger.info(f'Сообщение отправлено: {message}')
             quantity -= 1
             timestamp = int(time.time())
@@ -153,7 +157,6 @@ def main():
             send_message(bot, message)
             logger.info(f'сообщение отправлено: {message}')
             time.sleep(RETRY_PERIOD)
-            sys.exit
 
 
 if __name__ == '__main__':
