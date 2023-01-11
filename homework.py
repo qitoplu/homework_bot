@@ -1,14 +1,15 @@
+import json
 import logging
 import os
+import sys
 import time
 from http import HTTPStatus
 
 import requests
-import json
 import telegram
 from dotenv import load_dotenv
+
 import exceptions
-import sys
 
 load_dotenv()
 
@@ -62,6 +63,7 @@ def send_message(bot, message):
         logger.debug('Сообщение отправлено')
     except telegram.TelegramError as error:
         logger.error(f'{error}, ошибка доступа к API практикума')
+        raise Exception(f'{error}, ошибка доступа к API практикума')
 
 
 def get_api_answer(timestamp):
@@ -72,12 +74,14 @@ def get_api_answer(timestamp):
     payload = {'from_date': timestamp}
     try:
         answer = requests.get(ENDPOINT, headers=HEADERS, params=payload)
-    except requests.RequestException:
-        logger.error('Запросик к API не проходит')
+    except requests.RequestException as error:
+        logger.error(f'Запросик к API не проходит, {error}')
+        raise Exception(f'Запросик к API не проходит, {error}')
     try:
         content = answer.json()
-    except json.decoder.JSONDecodeError:
-        logger.error('Невозможно преобразовать ответ в JSON')
+    except json.decoder.JSONDecodeError as error:
+        logger.error(f'Невозможно преобразовать ответ в JSON, {error}')
+        raise Exception(f'Невозможно преобразовать ответ в JSON, {error}')
     if answer.status_code == HTTPStatus.OK:
         return content
     raise exceptions.ExceptionGetApiAnswerStatus(
@@ -89,16 +93,20 @@ def check_response(response):
     """Функция проверяет наличие ключей в ответе API."""
     try:
         curr_date = response['current_date']
-    except KeyError:
+    except KeyError as error:
         logger.error(
-            'Ключ current_date не передается в ответе API'
+            f'Ключ current_date не передается в ответе API, {error}'
+        )
+        raise Exception(
+            f'Ключ current_date не передается в ответе API, {error}'
         )
     try:
         homeworks = response['homeworks']
-    except KeyError:
+    except KeyError as error:
         logger.error(
-            'Ключ homeworks не передается в ответе API'
+            f'Ключ homeworks не передается в ответе API, {error}'
         )
+        raise Exception(f'Ключ homeworks не передается в ответе API, {error}')
     if isinstance(curr_date, int) and isinstance(homeworks, list):
         return homeworks
     raise TypeError('Неверный тип переданных данных')
@@ -142,14 +150,12 @@ def main():
             if not homework:
                 time.sleep(RETRY_PERIOD)
                 continue
-            quantity = len(homework)
-            if homework[quantity - 1] != 0:
-                message = parse_status(homework[quantity - 1])
+            if homework[len(homework) - 1] != 0:
+                message = parse_status(homework[len(homework) - 1])
             if temporary_status != message:
                 send_message(bot, message)
                 temporary_status = message
             logger.info(f'Сообщение отправлено: {message}')
-            quantity -= 1
             timestamp = int(time.time())
             time.sleep(RETRY_PERIOD)
         except Exception as error:
