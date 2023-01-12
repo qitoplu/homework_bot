@@ -150,8 +150,8 @@ def main():
             if not homework:
                 time.sleep(RETRY_PERIOD)
                 continue
-            if homework[len(homework) - 1] != 0:
-                message = parse_status(homework[len(homework) - 1])
+            if homework[-1] != []:
+                message = parse_status(homework[-1])
             if temporary_status != message:
                 send_message(bot, message)
                 temporary_status = message
