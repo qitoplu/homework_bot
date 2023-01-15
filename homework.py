@@ -124,12 +124,17 @@ def parse_status(homework):
         raise exceptions.ExceptionKeyNotFound(
             'Ключа homework_status нет в ответе'
         )
-    if homework_status in HOMEWORK_VERDICTS:
-        verdict = HOMEWORK_VERDICTS.get(homework_status)
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    raise exceptions.ExceptionUnknownHomeworkStatus(
-        'Неизвестный статус ДЗ'
-    )
+    if isinstance(homework, dict):
+        if homework_status in HOMEWORK_VERDICTS:
+            verdict = HOMEWORK_VERDICTS.get(homework_status)
+            return(
+                f'Изменился статус проверки работы "{homework_name}".; '
+                f'{verdict}'
+            )
+        raise exceptions.ExceptionUnknownHomeworkStatus(
+            'Неизвестный статус ДЗ'
+        )
+    raise TypeError('Неверный тип данных')
 
 
 def main():
@@ -148,10 +153,10 @@ def main():
             response = get_api_answer(timestamp)
             homework = check_response(response)
             if not homework:
+                logger.info('Пока пусто')
                 time.sleep(RETRY_PERIOD)
                 continue
-            if homework[-1] != []:
-                message = parse_status(homework[-1])
+            message = parse_status(homework[-1])
             if temporary_status != message:
                 send_message(bot, message)
                 temporary_status = message
